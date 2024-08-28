@@ -1,11 +1,12 @@
 import sys
+import tarfile
 from contextlib import redirect_stdout
 
 import torch
+import torchvision.transforms.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.datasets import CIFAR10, STL10, CIFAR100
-import torchvision.transforms.functional as F
+from torchvision.datasets import CIFAR10, CIFAR100, STL10
 
 from torch_fidelity.helpers import vassert
 
@@ -28,6 +29,33 @@ class ImagesPathDataset(Dataset):
         path = self.files[i]
         img = Image.open(path).convert("RGB")
         img = self.transforms(img)
+        return img
+
+
+class TarsPathDataset(Dataset):
+    def __init__(self, tar_files, transforms=None):
+        self.tar_files = tar_files
+        self.transforms = TransformPILtoRGBTensor() if transforms is None else transforms
+        self.image_paths = self._extract_image_paths()
+
+    def _extract_image_paths(self):
+        image_paths = []
+        for tar_file in self.tar_files:
+            with tarfile.open(tar_file, "r") as tar:
+                for member in tar.getmembers():
+                    if member.isfile() and member.name.lower().endswith(("jpg", "jpeg", "png")):
+                        image_paths.append((tar_file, member.name))
+        return image_paths
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, index):
+        tar_file, image_path = self.image_paths[index]
+        with tarfile.open(tar_file, "r") as tar:
+            img_data = tar.extractfile(image_path).read()
+            img = Image.open(BytesIO(img_data)).convert("RGB")
+            img = self.transforms(img)
         return img
 
 

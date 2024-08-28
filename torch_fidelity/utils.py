@@ -10,20 +10,14 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from torch_fidelity import GenerativeModelModuleWrapper
-from torch_fidelity.datasets import ImagesPathDataset, TransformPILtoRGBTensor
+from torch_fidelity.datasets import ImagesPathDataset, TarsPathDataset, TransformPILtoRGBTensor
 from torch_fidelity.defaults import DEFAULTS
 from torch_fidelity.feature_extractor_base import FeatureExtractorBase
 from torch_fidelity.generative_model_base import GenerativeModelBase
 from torch_fidelity.generative_model_onnx import GenerativeModelONNX
 from torch_fidelity.helpers import get_kwarg, vassert, vprint
-from torch_fidelity.registry import (
-    DATASETS_REGISTRY,
-    FEATURE_EXTRACTORS_REGISTRY,
-    SAMPLE_SIMILARITY_REGISTRY,
-    INTERPOLATION_REGISTRY,
-    NOISE_SOURCE_REGISTRY,
-)
-from torch_fidelity.utils_torch import torch_maybe_compile, torch_atomic_save
+from torch_fidelity.registry import DATASETS_REGISTRY, FEATURE_EXTRACTORS_REGISTRY, INTERPOLATION_REGISTRY, NOISE_SOURCE_REGISTRY, SAMPLE_SIMILARITY_REGISTRY
+from torch_fidelity.utils_torch import torch_atomic_save, torch_maybe_compile
 
 DEFAULT_FEATURE_EXTRACTOR = {
     "isc": "inception-v3-compat",
@@ -35,13 +29,10 @@ DEFAULT_FEATURE_EXTRACTOR = {
 
 def glob_samples_paths(path, samples_find_deep, samples_find_ext, samples_ext_lossy=None, verbose=True):
     vassert(type(samples_find_ext) is str and samples_find_ext != "", "Sample extensions not specified")
-    vassert(
-        samples_ext_lossy is None or type(samples_ext_lossy) is str, "Lossy sample extensions can be None or string"
-    )
+    vassert(samples_ext_lossy is None or type(samples_ext_lossy) is str, "Lossy sample extensions can be None or string")
     vprint(
         verbose,
-        f'Looking for samples {"recursively" if samples_find_deep else "non-recursivelty"} in "{path}" '
-        f"with extensions {samples_find_ext}",
+        f'Looking for samples {"recursively" if samples_find_deep else "non-recursivelty"} in "{path}" ' f"with extensions {samples_find_ext}",
     )
     samples_find_ext = [a.strip() for a in samples_find_ext.split(",") if a.strip() != ""]
     if samples_ext_lossy is not None:
@@ -63,9 +54,30 @@ def glob_samples_paths(path, samples_find_deep, samples_find_ext, samples_ext_lo
     files = sorted(files)
     vprint(
         verbose,
-        f"Found {len(files)} samples"
-        f'{", some are lossy-compressed - this may affect metrics" if have_lossy else ""}',
+        f"Found {len(files)} samples" f'{", some are lossy-compressed - this may affect metrics" if have_lossy else ""}',
     )
+    return files
+
+
+def glob_tar_files(path, samples_find_deep, verbose=True):
+    samples_find_ext = "tar"
+    vprint(
+        verbose,
+        f'Looking for samples {"recursively" if samples_find_deep else "non-recursivelty"} in "{path}" ' f"with extensions {samples_find_ext}",
+    )
+    files = []
+    for r, d, ff in os.walk(path):
+        if not samples_find_deep and os.path.realpath(r) != os.path.realpath(path):
+            continue
+        for f in ff:
+            ext = os.path.splitext(f)[1].lower()
+            if len(ext) > 0 and ext[0] == ".":
+                ext = ext[1:]
+            if ext != samples_find_ext:
+                continue
+            files.append(os.path.realpath(os.path.join(r, f)))
+    files = sorted(files)
+    vprint(verbose, f"Found {len(files)} samples")
     return files
 
 
@@ -114,9 +126,7 @@ def batch_interp(a, b, t, method):
 def get_featuresdict_from_dataset(input, feat_extractor, batch_size, cuda, save_cpu_ram, verbose):
     vassert(isinstance(input, Dataset), "Input can only be a Dataset instance")
     vassert(torch.is_tensor(input[0]), "Input Dataset should return torch.Tensor")
-    vassert(
-        isinstance(feat_extractor, FeatureExtractorBase), "Feature extractor is not a subclass of FeatureExtractorBase"
-    )
+    vassert(isinstance(feat_extractor, FeatureExtractorBase), "Feature extractor is not a subclass of FeatureExtractorBase")
 
     if batch_size > len(input):
         batch_size = len(input)
@@ -133,9 +143,7 @@ def get_featuresdict_from_dataset(input, feat_extractor, batch_size, cuda, save_
 
     out = None
 
-    with tqdm(
-        disable=not verbose, leave=False, unit="samples", total=len(input), desc="Processing samples"
-    ) as t, torch.no_grad():
+    with tqdm(disable=not verbose, leave=False, unit="samples", total=len(input), desc="Processing samples") as t, torch.no_grad():
         for bid, batch in enumerate(dataloader):
             if cuda:
                 batch = batch.cuda(non_blocking=True)
@@ -159,9 +167,7 @@ def get_featuresdict_from_dataset(input, feat_extractor, batch_size, cuda, save_
 
 def get_featuresdict_from_generative_model(gen_model, feat_extractor, num_samples, batch_size, cuda, rng_seed, verbose):
     vassert(isinstance(gen_model, GenerativeModelBase), "Input can only be a GenerativeModel instance")
-    vassert(
-        isinstance(feat_extractor, FeatureExtractorBase), "Feature extractor is not a subclass of FeatureExtractorBase"
-    )
+    vassert(isinstance(feat_extractor, FeatureExtractorBase), "Feature extractor is not a subclass of FeatureExtractorBase")
 
     if batch_size > num_samples:
         batch_size = num_samples
@@ -173,9 +179,7 @@ def get_featuresdict_from_generative_model(gen_model, feat_extractor, num_sample
     if cuda:
         gen_model.cuda()
 
-    with tqdm(
-        disable=not verbose, leave=False, unit="samples", total=num_samples, desc="Processing samples"
-    ) as t, torch.no_grad():
+    with tqdm(disable=not verbose, leave=False, unit="samples", total=num_samples, desc="Processing samples") as t, torch.no_grad():
         for sample_start in range(0, num_samples, batch_size):
             sample_end = min(sample_start + batch_size, num_samples)
             sz = sample_end - sample_start
@@ -258,7 +262,11 @@ def prepare_input_from_descriptor(input_desc, **kwargs):
             samples_ext_lossy = get_kwarg("samples_ext_lossy", kwargs)
             samples_resize_and_crop = get_kwarg("samples_resize_and_crop", kwargs)
             verbose = get_kwarg("verbose", kwargs)
-            input = glob_samples_paths(input, samples_find_deep, samples_find_ext, samples_ext_lossy, verbose)
+            input = glob_tar_files(input, samples_find_deep, verbose)
+            is_tar_files = True
+            if len(input) == 0:
+                input = glob_samples_paths(input, samples_find_deep, samples_find_ext, samples_ext_lossy, verbose)
+                is_tar_files = False
             vassert(len(input) > 0, f"No samples found in {input} with samples_find_deep={samples_find_deep}")
             transforms = []
             if samples_resize_and_crop > 0:
@@ -268,7 +276,10 @@ def prepare_input_from_descriptor(input_desc, **kwargs):
                 ]
             transforms.append(TransformPILtoRGBTensor())
             transforms = torchvision.transforms.Compose(transforms)
-            input = ImagesPathDataset(input, transforms)
+            if is_tar_files:
+                input = TarsPathDataset(input, transforms)
+            else:
+                input = ImagesPathDataset(input, transforms)
         elif os.path.isfile(input) and input.endswith(".onnx"):
             input = GenerativeModelONNX(
                 input,
@@ -302,8 +313,7 @@ def prepare_input_from_descriptor(input_desc, **kwargs):
 def prepare_input_descriptor_from_input_id(input_id, **kwargs):
     vassert(
         type(input_id) is int or type(input_id) is str and input_id in DATASETS_REGISTRY,
-        "Input can be either integer (1 or 2) specifying the first or the second set of kwargs, or a string as a "
-        "shortcut for registered datasets",
+        "Input can be either integer (1 or 2) specifying the first or the second set of kwargs, or a string as a " "shortcut for registered datasets",
     )
     if type(input_id) is int:
         input_desc = make_input_descriptor_from_int(input_id, **kwargs)
@@ -399,9 +409,7 @@ def extract_featuresdict_from_input_id(input_id, feat_extractor, **kwargs):
         input_desc = prepare_input_descriptor_from_input_id(input_id, **kwargs)
         num_samples = input_desc["input_model_num_samples"]
         vassert(type(num_samples) is int and num_samples > 0, "Number of samples must be positive")
-        featuresdict = get_featuresdict_from_generative_model(
-            input, feat_extractor, num_samples, batch_size, cuda, rng_seed, verbose
-        )
+        featuresdict = get_featuresdict_from_generative_model(input, feat_extractor, num_samples, batch_size, cuda, rng_seed, verbose)
     return featuresdict
 
 
