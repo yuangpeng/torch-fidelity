@@ -1,6 +1,7 @@
 import sys
 import tarfile
 from contextlib import redirect_stdout
+from io import BytesIO
 
 import torch
 import torchvision.transforms.functional as F
