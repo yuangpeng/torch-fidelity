@@ -1,13 +1,11 @@
-from torch_fidelity.helpers import get_kwarg, vassert, vprint, process_deprecations
-from torch_fidelity.metric_fid import (
-    fid_inputs_to_metric,
-    fid_featuresdict_to_statistics_cached,
-    fid_statistics_to_metric,
-)
+import numpy as np
+
+from torch_fidelity.helpers import get_kwarg, process_deprecations, vassert, vprint
+from torch_fidelity.metric_fid import fid_featuresdict_to_statistics_cached, fid_inputs_to_metric, fid_statistics_to_metric
 from torch_fidelity.metric_isc import isc_featuresdict_to_metric
 from torch_fidelity.metric_kid import kid_featuresdict_to_metric
-from torch_fidelity.metric_prc import prc_featuresdict_to_metric
 from torch_fidelity.metric_ppl import calculate_ppl
+from torch_fidelity.metric_prc import prc_featuresdict_to_metric
 from torch_fidelity.utils import (
     create_feature_extractor,
     extract_featuresdict_from_input_id_cached,
@@ -71,10 +69,13 @@ def calculate_metrics_one_feature_extractor(**kwargs):
             metrics.update(metric_fid)
             return metrics
 
-        vprint(verbose, f"Extracting features from input1")
-        featuresdict_1 = extract_featuresdict_from_input_id_cached(1, feat_extractor, **kwargs)
+        featuresdict_1 = None
+        if input1 is not None and not input1.endswith(".npz"):
+            vprint(verbose, f"Extracting features from input1")
+            featuresdict_1 = extract_featuresdict_from_input_id_cached(1, feat_extractor, **kwargs)
+
         featuresdict_2 = None
-        if input2 is not None:
+        if input2 is not None and not input2.endswith(".npz"):
             vprint(verbose, f"Extracting features from input2")
             featuresdict_2 = extract_featuresdict_from_input_id_cached(2, feat_extractor, **kwargs)
 
@@ -83,14 +84,20 @@ def calculate_metrics_one_feature_extractor(**kwargs):
             metrics.update(metric_isc)
 
         if have_fid:
-            cacheable_input1_name = get_cacheable_input_name(1, **kwargs)
-            cacheable_input2_name = get_cacheable_input_name(2, **kwargs)
-            fid_stats_1 = fid_featuresdict_to_statistics_cached(
-                featuresdict_1, cacheable_input1_name, feat_extractor, feature_layer_fid, **kwargs
-            )
-            fid_stats_2 = fid_featuresdict_to_statistics_cached(
-                featuresdict_2, cacheable_input2_name, feat_extractor, feature_layer_fid, **kwargs
-            )
+            if input1.endswith(".npz"):
+                fid_stats_1 = {"mu": np.load(input1)["mu"], "sigma": np.load(input1)["sigma"]}
+            elif featuresdict_1 is not None:
+                cacheable_input1_name = get_cacheable_input_name(1, **kwargs)
+                fid_stats_1 = fid_featuresdict_to_statistics_cached(featuresdict_1, cacheable_input1_name, feat_extractor, feature_layer_fid, **kwargs)
+            else:
+                raise NotImplementedError("FID statistics caching is not implemented for input1")
+            if input2.endswith(".npz"):
+                fid_stats_2 = {"mu": np.load(input2)["mu"], "sigma": np.load(input2)["sigma"]}
+            elif featuresdict_2 is not None:
+                cacheable_input2_name = get_cacheable_input_name(2, **kwargs)
+                fid_stats_2 = fid_featuresdict_to_statistics_cached(featuresdict_2, cacheable_input2_name, feat_extractor, feature_layer_fid, **kwargs)
+            else:
+                raise NotImplementedError("FID statistics caching is not implemented for input2")
             metric_fid = fid_statistics_to_metric(fid_stats_1, fid_stats_2, get_kwarg("verbose", kwargs))
             metrics.update(metric_fid)
 
