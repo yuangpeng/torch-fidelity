@@ -8,14 +8,8 @@ import torch
 
 from torch_fidelity.defaults import DEFAULTS
 from torch_fidelity.helpers import process_deprecations
-from torch_fidelity.metrics import calculate_metrics
-from torch_fidelity.registry import (
-    FEATURE_EXTRACTORS_REGISTRY,
-    DATASETS_REGISTRY,
-    SAMPLE_SIMILARITY_REGISTRY,
-    INTERPOLATION_REGISTRY,
-    NOISE_SOURCE_REGISTRY,
-)
+from torch_fidelity.metrics import calculate_metrics, save_fid_metric
+from torch_fidelity.registry import DATASETS_REGISTRY, FEATURE_EXTRACTORS_REGISTRY, INTERPOLATION_REGISTRY, NOISE_SOURCE_REGISTRY, SAMPLE_SIMILARITY_REGISTRY
 
 
 def main():
@@ -102,9 +96,7 @@ def main():
     parser.add_argument("--isc-splits", default=DEFAULTS["isc_splits"], type=int, help="Number of splits in ISC")
     parser.add_argument("--kid-subsets", default=DEFAULTS["kid_subsets"], type=int, help="Number of subsets in KID")
     parser.add_argument("--kid-subset-size", default=DEFAULTS["kid_subset_size"], type=int, help="Subset size in KID")
-    parser.add_argument(
-        "--kid-kernel", default=DEFAULTS["kid_kernel"], type=str, choices=["poly", "rbf"], help="Kernel in KID"
-    )
+    parser.add_argument("--kid-kernel", default=DEFAULTS["kid_kernel"], type=str, choices=["poly", "rbf"], help="Kernel in KID")
     parser.add_argument(
         "--kid-kernel-poly-degree",
         default=DEFAULTS["kid_kernel_poly_degree"],
@@ -129,9 +121,7 @@ def main():
         type=float,
         help="RBF kernel sigma in KID",
     )
-    parser.add_argument(
-        "--ppl-epsilon", default=DEFAULTS["ppl_epsilon"], type=float, help="Interpolation step size in PPL"
-    )
+    parser.add_argument("--ppl-epsilon", default=DEFAULTS["ppl_epsilon"], type=float, help="Interpolation step size in PPL")
     parser.add_argument(
         "--ppl-reduction",
         default=DEFAULTS["ppl_reduction"],
@@ -177,13 +167,9 @@ def main():
         choices=list(INTERPOLATION_REGISTRY.keys()),
         help="Noise interpolation mode in PPL",
     )
-    parser.add_argument(
-        "--prc-neighborhood", default=DEFAULTS["prc_neighborhood"], type=int, help="Number of nearest neighbours in PRC"
-    )
+    parser.add_argument("--prc-neighborhood", default=DEFAULTS["prc_neighborhood"], type=int, help="Number of nearest neighbours in PRC")
     parser.add_argument("--prc-batch-size", default=DEFAULTS["prc_batch_size"], type=int, help="Batch size in PRC")
-    parser.add_argument(
-        "--no-samples-shuffle", action="store_true", help="Do not perform samples shuffling before computing splits"
-    )
+    parser.add_argument("--no-samples-shuffle", action="store_true", help="Do not perform samples shuffling before computing splits")
     parser.add_argument("--samples-find-deep", action="store_true", help="Find all samples in paths recursively")
     parser.add_argument(
         "--samples-find-ext",
@@ -209,9 +195,7 @@ def main():
         type=str,
         help="Path to built-in torchvision datasets root. Defaults to $ENV_TORCH_HOME/fidelity_datasets",
     )
-    parser.add_argument(
-        "--no-datasets-download", action="store_true", help="Do not download torchvision datasets to dataset_root"
-    )
+    parser.add_argument("--no-datasets-download", action="store_true", help="Do not download torchvision datasets to dataset_root")
     parser.add_argument(
         "--cache-root",
         default=DEFAULTS["cache_root"],
@@ -242,15 +226,13 @@ def main():
         "--input1-model-num-classes",
         default=DEFAULTS["input1_model_num_classes"],
         type=int,
-        help="Number of classes for conditional (0 for unconditional) generation (only required when "
-        "the input is a path to a generator model)",
+        help="Number of classes for conditional (0 for unconditional) generation (only required when " "the input is a path to a generator model)",
     )
     parser.add_argument(
         "--input1-model-num-samples",
         default=DEFAULTS["input1_model_num_samples"],
         type=int,
-        help="Number of samples to draw (only required when the input is a generator model). "
-        "This option affects the following metrics: ISC, FID, KID",
+        help="Number of samples to draw (only required when the input is a generator model). " "This option affects the following metrics: ISC, FID, KID",
     )
     parser.add_argument(
         "--input2-cache-name",
@@ -275,15 +257,13 @@ def main():
         "--input2-model-num-classes",
         default=DEFAULTS["input2_model_num_classes"],
         type=int,
-        help="Number of classes for conditional (0 for unconditional) generation (only required when "
-        "the input is a path to a generator model)",
+        help="Number of classes for conditional (0 for unconditional) generation (only required when " "the input is a path to a generator model)",
     )
     parser.add_argument(
         "--input2-model-num-samples",
         default=DEFAULTS["input2_model_num_samples"],
         type=int,
-        help="Number of samples to draw (only required when the input is a generator model). "
-        "This option affects the following metrics: ISC, FID, KID",
+        help="Number of samples to draw (only required when the input is a generator model). " "This option affects the following metrics: ISC, FID, KID",
     )
     parser.add_argument(
         "--rng-seed",
@@ -294,6 +274,14 @@ def main():
     parser.add_argument("--save-cpu-ram", action="store_true", help="Use less CPU RAM at the cost of speed")
     parser.add_argument("--silent", action="store_true", help="Do not output progress information to STDERR")
 
+    # NOTE: new features
+    parser.add_argument(
+        "--save-fid-stats",
+        action="store_true",
+        help="Generate an npz archive from a directory of samples. The first path is used as input and the second as output.",
+    )
+    parser.add_argument("--fid-output-path", default=None, help="fid stats output path.")
+
     args, unknown = parser.parse_known_args()
     args = vars(args)
 
@@ -303,12 +291,12 @@ def main():
         print(f"Use 'fidelity --help' to see the up-to-date command line options", file=sys.stderr)
         print(f"See https://github.com/toshas/torch-fidelity/blob/master/CHANGELOG.md", file=sys.stderr)
 
-    if not (args["isc"] or args["fid"] or args["kid"] or args["ppl"] or args["prc"]):
+    if not (args["isc"] or args["fid"] or args["kid"] or args["ppl"] or args["prc"]) and not args["save_fid_stats"]:
         print(f"No metrics to compute, exiting", file=sys.stderr)
         print(f"Use 'fidelity --help' to see the command line options", file=sys.stderr)
         exit(1)
 
-    if args["input1"] is None and args["input2"] is None:
+    if args["input1"] is None and args["input2"] is None and not args["save_fid_stats"]:
         print(f"No inputs are given, exiting", file=sys.stderr)
         print(f"Use 'fidelity --help' to see the command line options", file=sys.stderr)
         exit(1)
@@ -322,12 +310,17 @@ def main():
 
     if args["gpu"] is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = args["gpu"]
+        torch.cuda.device_count.cache_clear()
 
     args["cuda"] = not args["cpu"] and os.environ.get("CUDA_VISIBLE_DEVICES", "") != ""
 
     if torch.cuda.is_available() and not args["cuda"]:
         print("CUDA is available but --gpu option is not specified", file=sys.stderr)
 
+    if args["save_fid_stats"]:
+        args["fid"] = True
+        save_fid_metric(**args)
+        return
     metrics = calculate_metrics(**args)
 
     if args["json"]:

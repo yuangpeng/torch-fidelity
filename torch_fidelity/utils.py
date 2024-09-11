@@ -77,7 +77,7 @@ def glob_tar_files(path, samples_find_deep, verbose=True):
                 continue
             files.append(os.path.realpath(os.path.join(r, f)))
     files = sorted(files)
-    vprint(verbose, f"Found {len(files)} samples")
+    vprint(verbose, f"Found {len(files)} tar files")
     return files
 
 

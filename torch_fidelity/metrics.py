@@ -1,7 +1,7 @@
 import numpy as np
 
 from torch_fidelity.helpers import get_kwarg, process_deprecations, vassert, vprint
-from torch_fidelity.metric_fid import fid_featuresdict_to_statistics_cached, fid_inputs_to_metric, fid_statistics_to_metric
+from torch_fidelity.metric_fid import fid_featuresdict_to_statistics_cached, fid_input_id_to_statistics_cached, fid_inputs_to_metric, fid_statistics_to_metric
 from torch_fidelity.metric_isc import isc_featuresdict_to_metric
 from torch_fidelity.metric_kid import kid_featuresdict_to_metric
 from torch_fidelity.metric_ppl import calculate_ppl
@@ -354,3 +354,20 @@ def calculate_metrics(**kwargs):
     out.update(calculate_metrics_one_feature_extractor(**kwargs_subset))
 
     return out
+
+
+def save_fid_metric(**kwargs):
+    process_deprecations(kwargs)
+
+    feature_extractor = resolve_feature_extractor(**kwargs)
+    feature_layer_fid = None
+    feature_layers = set()
+
+    feature_layer_fid = resolve_feature_layer_for_metric("fid", **kwargs)
+    feature_layers.add(feature_layer_fid)
+
+    feat_extractor = create_feature_extractor(feature_extractor, list(feature_layers), **kwargs)
+    feat_layer_name = resolve_feature_layer_for_metric("fid", **kwargs)
+    stats_1 = fid_input_id_to_statistics_cached(1, feat_extractor, feat_layer_name, **kwargs)
+
+    np.savez_compressed(kwargs["fid_output_path"], mu=stats_1["mu"], sigma=stats_1["sigma"])
