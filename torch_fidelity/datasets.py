@@ -1,3 +1,4 @@
+import random
 import sys
 import tarfile
 from contextlib import redirect_stdout
@@ -51,13 +52,20 @@ class TarsPathDataset(Dataset):
     def __len__(self):
         return len(self.image_paths)
 
-    def __getitem__(self, index):
+    def getitem(self, index):
         tar_file, image_path = self.image_paths[index]
         with tarfile.open(tar_file, "r") as tar:
             img_data = tar.extractfile(image_path).read()
             img = Image.open(BytesIO(img_data)).convert("RGB")
             img = self.transforms(img)
         return img
+
+    def __getitem__(self, index):
+        try:
+            return self.getitem(index)
+        except Exception as e:
+            print(f"Failed to load image {index}: {e}")
+            return self.getitem(random.randint(0, len(self) - 1))
 
 
 class Cifar10_RGB(CIFAR10):
